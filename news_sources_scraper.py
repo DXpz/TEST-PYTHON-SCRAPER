@@ -11,6 +11,7 @@ from datetime import datetime
 from urllib.parse import urljoin, urlparse
 import time
 import re
+import random
 
 
 class NewsSourcesScraper:
@@ -33,31 +34,65 @@ class NewsSourcesScraper:
     
     def __init__(self):
         self.session = requests.Session()
+        # Headers más completos para evitar bloqueos
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'Referer': 'https://www.google.com/'
         })
         self.results = []
     
-    def fetch_page(self, url: str, timeout: int = 15) -> Optional[BeautifulSoup]:
-        """Obtiene y parsea una página"""
+    def fetch_page(self, url: str, timeout: int = 20) -> Optional[BeautifulSoup]:
+        """Obtiene y parsea una página con mejor manejo de errores"""
         try:
             print(f"  📄 Accediendo a {urlparse(url).netloc}...")
-            response = self.session.get(url, timeout=timeout)
+            # Agregar delay aleatorio para parecer más humano
+            time.sleep(random.uniform(1, 3))
+            
+            # Actualizar referer con la URL actual
+            headers = self.session.headers.copy()
+            headers['Referer'] = urlparse(url).scheme + '://' + urlparse(url).netloc
+            
+            response = self.session.get(url, timeout=timeout, headers=headers, allow_redirects=True)
             response.raise_for_status()
+            
+            # Verificar que realmente recibimos contenido HTML
+            if not response.content or len(response.content) < 100:
+                print(f"  ⚠️  Respuesta vacía o muy corta")
+                return None
+                
             return BeautifulSoup(response.content, 'html.parser')
+        except requests.exceptions.ConnectionError as e:
+            print(f"  ⚠️  Error de conexión (posible bloqueo): {str(e)[:100]}")
+            return None
+        except requests.exceptions.Timeout:
+            print(f"  ⚠️  Timeout esperando respuesta")
+            return None
+        except requests.exceptions.HTTPError as e:
+            print(f"  ⚠️  Error HTTP {e.response.status_code if hasattr(e, 'response') else 'desconocido'}")
+            return None
         except Exception as e:
             print(f"  ⚠️  Error: {str(e)[:100]}")
             return None
     
     def extract_articles_generic(self, soup: BeautifulSoup, base_url: str) -> List[Dict]:
         """
-        Extrae artículos usando selectores genéricos que funcionan en la mayoría de sitios
+        Extrae artículos usando selectores genéricos mejorados que funcionan en la mayoría de sitios
         """
         articles = []
+        seen_urls = set()  # Para evitar duplicados
         
-        # Selectores comunes para artículos
+        # Selectores mejorados y más completos para artículos
         article_selectors = [
             'article',
             '.article',
@@ -65,61 +100,153 @@ class NewsSourcesScraper:
             '.entry',
             '.news-item',
             '.story',
+            '.card',
+            '.item',
             '[class*="article"]',
-            '[class*="post"]'
+            '[class*="post"]',
+            '[class*="card"]',
+            '[class*="item"]',
+            '[class*="news"]',
+            '[class*="story"]',
+            '[class*="entry"]',
+            'li[class*="article"]',
+            'li[class*="post"]',
+            'div[class*="article"]',
+            'div[class*="post"]',
+            'section article',
+            'main article',
+            '.content article',
+            '.main article'
         ]
         
         found_articles = []
         for selector in article_selectors:
-            found_articles = soup.select(selector)
-            if len(found_articles) > 0:
-                break
-        
-        # Si no encuentra con selectores, busca por tags semánticos
-        if not found_articles:
-            found_articles = soup.find_all(['article', 'div'], limit=20)
-        
-        for article in found_articles[:15]:  # Limitar a 15 artículos por fuente
             try:
-                # Extraer título
-                title_elem = article.find(['h1', 'h2', 'h3', 'h4', 'a'])
-                if not title_elem:
-                    continue
-                    
-                title = title_elem.get_text(strip=True)
-                if len(title) < 10:  # Títulos muy cortos probablemente no sean artículos
+                found = soup.select(selector)
+                if len(found) > 0:
+                    found_articles.extend(found)
+            except:
+                continue
+        
+        # Si no encuentra con selectores, busca por tags semánticos y estructura
+        if not found_articles:
+            # Buscar en listas
+            found_articles = soup.find_all(['article', 'li'], limit=30)
+            if len(found_articles) < 5:
+                # Buscar divs con estructura de artículo
+                found_articles = soup.find_all('div', class_=lambda x: x and any(
+                    keyword in str(x).lower() for keyword in ['article', 'post', 'card', 'item', 'news', 'story']
+                ), limit=30)
+        
+        # También buscar todos los enlaces que parezcan artículos
+        all_links = soup.find_all('a', href=True)
+        article_links = []
+        for link in all_links:
+            href = link.get('href', '')
+            text = link.get_text(strip=True)
+            # Filtrar enlaces que parezcan artículos (tienen texto significativo y URL válida)
+            if (len(text) > 15 and 
+                href and 
+                not any(skip in href.lower() for skip in ['#', 'javascript:', 'mailto:', 'tel:', '/tag/', '/category/', '/author/']) and
+                (href.startswith('http') or href.startswith('/'))):
+                article_links.append(link)
+        
+        # Procesar artículos encontrados
+        for article in found_articles[:20]:  # Aumentar límite a 20
+            try:
+                # Extraer título - múltiples estrategias
+                title = ''
+                title_elem = None
+                
+                # Estrategia 1: Buscar en headers dentro del artículo
+                for tag in ['h1', 'h2', 'h3', 'h4', 'h5']:
+                    title_elem = article.find(tag)
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
+                        if len(title) >= 10:
+                            break
+                
+                # Estrategia 2: Buscar en enlaces
+                if not title or len(title) < 10:
+                    link_elem = article.find('a', href=True)
+                    if link_elem:
+                        title = link_elem.get_text(strip=True)
+                        title_elem = link_elem
+                
+                # Estrategia 3: Buscar en atributos data o aria
+                if not title or len(title) < 10:
+                    title = (article.get('data-title') or 
+                            article.get('aria-label') or 
+                            article.get('title', '')).strip()
+                
+                if not title or len(title) < 10:
                     continue
                 
-                # Extraer enlace
-                link_elem = article.find('a', href=True)
-                if not link_elem:
-                    link_elem = title_elem if title_elem.name == 'a' else None
-                
+                # Extraer enlace - múltiples estrategias
                 link = ''
-                if link_elem and link_elem.get('href'):
-                    link = link_elem['href']
+                link_elem = article.find('a', href=True)
+                
+                if link_elem:
+                    link = link_elem.get('href', '')
+                elif title_elem and title_elem.name == 'a':
+                    link = title_elem.get('href', '')
+                elif article.name == 'a':
+                    link = article.get('href', '')
+                
+                # Normalizar URL
+                if link:
                     if not link.startswith('http'):
                         link = urljoin(base_url, link)
+                    # Evitar duplicados
+                    if link in seen_urls:
+                        continue
+                    seen_urls.add(link)
+                else:
+                    continue
                 
-                # Extraer descripción
+                # Extraer descripción - múltiples estrategias
                 description = ''
-                desc_elem = article.find('p')
-                if desc_elem:
-                    description = desc_elem.get_text(strip=True)[:300]
+                # Buscar en párrafos
+                for p in article.find_all(['p', 'div'], limit=3):
+                    text = p.get_text(strip=True)
+                    if len(text) > 30 and len(text) < 500:
+                        description = text[:300]
+                        break
                 
-                # Extraer imagen
+                # Si no hay descripción, buscar en atributos
+                if not description:
+                    description = (article.get('data-description') or 
+                                 article.get('data-summary') or '').strip()[:300]
+                
+                # Extraer imagen - múltiples estrategias
                 image = ''
                 img_elem = article.find('img')
                 if img_elem:
-                    image = img_elem.get('src', '') or img_elem.get('data-src', '')
+                    image = (img_elem.get('src') or 
+                            img_elem.get('data-src') or 
+                            img_elem.get('data-lazy-src') or
+                            img_elem.get('data-original') or '')
                     if image and not image.startswith('http'):
                         image = urljoin(base_url, image)
                 
-                # Extraer fecha
+                # Extraer fecha - múltiples estrategias
                 date = ''
-                date_elem = article.find(['time', 'span'], class_=lambda x: x and ('date' in str(x).lower() or 'time' in str(x).lower()))
+                # Buscar en time tag
+                date_elem = article.find('time')
                 if date_elem:
                     date = date_elem.get('datetime', '') or date_elem.get_text(strip=True)
+                
+                # Buscar en spans/divs con clases de fecha
+                if not date:
+                    date_elems = article.find_all(['time', 'span', 'div'], 
+                                                  class_=lambda x: x and any(
+                                                      keyword in str(x).lower() 
+                                                      for keyword in ['date', 'time', 'published', 'updated']
+                                                  ))
+                    for de in date_elems:
+                        date = de.get('datetime', '') or de.get_text(strip=True)
+                        if date:
+                            break
                 
                 articles.append({
                     'titulo': title,
@@ -132,36 +259,296 @@ class NewsSourcesScraper:
             except Exception as e:
                 continue
         
+        # Procesar enlaces adicionales que parezcan artículos
+        for link_elem in article_links[:15]:
+            try:
+                href = link_elem.get('href', '')
+                if not href.startswith('http'):
+                    href = urljoin(base_url, href)
+                
+                if href in seen_urls:
+                    continue
+                seen_urls.add(href)
+                
+                title = link_elem.get_text(strip=True)
+                if len(title) >= 10:
+                    articles.append({
+                        'titulo': title,
+                        'url': href,
+                        'descripcion': '',
+                        'imagen': '',
+                        'fecha': '',
+                    })
+            except:
+                continue
+        
         return articles
     
-    def filter_by_keywords(self, articles: List[Dict], keywords: List[str]) -> List[Dict]:
+    def extract_article_content(self, url: str) -> str:
         """
-        Filtra artículos que contengan palabras clave específicas
+        Extrae el contenido completo de un artículo visitando su URL
         """
-        filtered = []
+        try:
+            soup = self.fetch_page(url)
+            if not soup:
+                return ""
+            
+            # Selectores comunes para el contenido del artículo
+            content_selectors = [
+                'article',
+                '.article-content',
+                '.post-content',
+                '.entry-content',
+                '.article-body',
+                '.content',
+                '[class*="article-content"]',
+                '[class*="post-content"]',
+                '[class*="entry-content"]',
+                'main article',
+                '.main-content article'
+            ]
+            
+            content_text = ""
+            
+            # Intentar con selectores específicos
+            for selector in content_selectors:
+                content_elem = soup.select_one(selector)
+                if content_elem:
+                    # Remover scripts, estilos y otros elementos no deseados
+                    for script in content_elem(["script", "style", "nav", "aside", "footer", "header", "iframe"]):
+                        script.decompose()
+                    
+                    # Extraer todos los párrafos
+                    paragraphs = content_elem.find_all(['p', 'div'])
+                    content_parts = []
+                    for p in paragraphs:
+                        text = p.get_text(strip=True)
+                        if text and len(text) > 20:  # Filtrar textos muy cortos
+                            content_parts.append(text)
+                    
+                    if content_parts:
+                        content_text = "\n\n".join(content_parts)
+                        break
+            
+            # Si no se encontró con selectores específicos, intentar extraer de body
+            if not content_text:
+                body = soup.find('body')
+                if body:
+                    # Remover elementos no deseados
+                    for script in body(["script", "style", "nav", "aside", "footer", "header", "iframe", "noscript"]):
+                        script.decompose()
+                    
+                    # Buscar el contenido principal
+                    main_content = body.find(['main', 'article', 'div'], class_=lambda x: x and ('content' in str(x).lower() or 'article' in str(x).lower() or 'post' in str(x).lower()))
+                    if main_content:
+                        paragraphs = main_content.find_all(['p', 'div'])
+                        content_parts = []
+                        for p in paragraphs:
+                            text = p.get_text(strip=True)
+                            if text and len(text) > 20:
+                                content_parts.append(text)
+                        if content_parts:
+                            content_text = "\n\n".join(content_parts)
+            
+            return content_text[:10000]  # Limitar a 10000 caracteres
+            
+        except Exception as e:
+            print(f"  ⚠️  Error extrayendo contenido de {url}: {str(e)[:100]}")
+            return ""
+    
+    def calculate_similarity(self, text: str, keywords: List[str], tema: str) -> float:
+        """
+        Calcula la similitud mejorada de un texto con el tema y keywords
+        Retorna un score de 0 a 100
+        """
+        text_lower = text.lower()
+        tema_lower = tema.lower()
+        
+        # Normalizar texto (remover caracteres especiales para mejor matching)
+        text_normalized = re.sub(r'[^\w\s]', ' ', text_lower)
+        tema_normalized = re.sub(r'[^\w\s]', ' ', tema_lower)
+        
+        # Dividir tema en palabras significativas (más de 3 caracteres)
+        tema_words = [w for w in tema_normalized.split() if len(w) > 3]
+        
+        score = 0.0
+        
+        # Coincidencia exacta de keywords completas (peso muy alto)
+        for kw in keywords:
+            kw_lower = kw.lower()
+            kw_normalized = re.sub(r'[^\w\s]', ' ', kw_lower)
+            
+            # Coincidencia exacta de la keyword completa
+            if kw_normalized in text_normalized:
+                # Puntuación basada en longitud de keyword (keywords más largas = más específicas)
+                base_score = 15 + len(kw_normalized) * 3
+                score += base_score
+            
+            # Coincidencia de todas las palabras de la keyword
+            kw_words = [w for w in kw_normalized.split() if len(w) > 2]
+            if len(kw_words) > 1:
+                matches = sum(1 for word in kw_words if word in text_normalized)
+                if matches == len(kw_words):  # Todas las palabras coinciden
+                    score += 12
+                elif matches > len(kw_words) * 0.7:  # Más del 70% de palabras
+                    score += 8
+        
+        # Coincidencia de palabras del tema (peso medio)
+        for word in tema_words:
+            if word in text_normalized:
+                score += 6
+        
+        # Coincidencias parciales de palabras individuales (peso bajo)
+        all_keywords_words = []
+        for kw in keywords:
+            kw_normalized = re.sub(r'[^\w\s]', ' ', kw.lower())
+            all_keywords_words.extend([w for w in kw_normalized.split() if len(w) > 3])
+        
+        for kw_word in set(all_keywords_words):  # Usar set para evitar duplicados
+            if kw_word in text_normalized:
+                score += 3
+        
+        # Bonus por coincidencia en el título (si el texto parece ser un título)
+        if len(text) < 200:  # Probablemente es un título
+            for kw in keywords:
+                if kw.lower() in text_lower:
+                    score += 5
+        
+        return min(score, 200)  # Limitar score máximo pero permitir valores altos
+    
+    def filter_by_keywords(self, articles: List[Dict], keywords: List[str], tema: str = "", min_results: int = 5) -> List[Dict]:
+        """
+        Filtra artículos que contengan palabras clave específicas o sean similares al tema
+        Si no encuentra suficientes resultados exactos, usa similitud flexible
+        """
+        filtered_exact = []
+        filtered_similar = []
         
         for article in articles:
             text_to_search = f"{article['titulo']} {article['descripcion']}".lower()
             
-            # Verificar si contiene alguna palabra clave
-            if any(keyword.lower() in text_to_search for keyword in keywords):
+            # Verificar coincidencia exacta con keywords
+            exact_match = any(keyword.lower() in text_to_search for keyword in keywords)
+            
+            if exact_match:
                 # Calcular relevancia (cuántas keywords coinciden)
                 relevance = sum(1 for kw in keywords if kw.lower() in text_to_search)
-                article['relevancia'] = relevance
-                filtered.append(article)
+                article['relevancia'] = relevance + 100  # Bonus por coincidencia exacta
+                filtered_exact.append(article)
+            else:
+                # Calcular similitud si hay tema
+                if tema:
+                    similarity_score = self.calculate_similarity(
+                        f"{article['titulo']} {article['descripcion']}",
+                        keywords,
+                        tema
+                    )
+                    if similarity_score > 0:
+                        article['relevancia'] = similarity_score
+                        article['tipo_match'] = 'similar'
+                        filtered_similar.append(article)
         
-        # Ordenar por relevancia
-        filtered.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+        # Si hay suficientes resultados exactos, usar solo esos
+        if len(filtered_exact) >= min_results:
+            filtered_exact.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+            for article in filtered_exact:
+                article['tipo_match'] = 'exacto'
+            return filtered_exact
         
-        return filtered
+        # Si no hay suficientes exactos, combinar con similares
+        all_filtered = filtered_exact + filtered_similar
+        all_filtered.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+        
+        # Marcar tipo de match
+        for article in filtered_exact:
+            article['tipo_match'] = 'exacto'
+        
+        # Si aún no hay suficientes, tomar los mejores de todos los artículos
+        if len(all_filtered) < min_results:
+            # Calcular similitud para todos los artículos restantes
+            remaining_articles = [a for a in articles if a not in all_filtered]
+            for article in remaining_articles:
+                if tema:
+                    similarity_score = self.calculate_similarity(
+                        f"{article['titulo']} {article['descripcion']}",
+                        keywords,
+                        tema
+                    )
+                    if similarity_score > 0:  # Solo agregar si tiene alguna similitud
+                        article['relevancia'] = similarity_score
+                        article['tipo_match'] = 'flexible'
+                        all_filtered.append(article)
+            
+            all_filtered.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+        
+        # Si aún no hay resultados, devolver los primeros artículos disponibles
+        if len(all_filtered) == 0:
+            print(f"  ⚠️  No se encontraron artículos similares, devolviendo artículos disponibles...")
+            for i, article in enumerate(articles[:min_results]):
+                article['relevancia'] = 1
+                article['tipo_match'] = 'sin_filtro'
+                all_filtered.append(article)
+        
+        return all_filtered
     
-    def scrape_source(self, url: str, keywords: Optional[List[str]] = None) -> Dict:
+    def get_search_url(self, base_url: str, query: str) -> Optional[str]:
         """
-        Scrapea una fuente específica
+        Intenta generar una URL de búsqueda para una fuente
         """
+        query_encoded = requests.utils.quote(query)
+        domain = urlparse(base_url).netloc.lower()
+        
+        # Patrones comunes de URLs de búsqueda
+        search_patterns = [
+            f"{base_url}search?q={query_encoded}",
+            f"{base_url}search/?q={query_encoded}",
+            f"{base_url}?s={query_encoded}",
+            f"{base_url}?search={query_encoded}",
+            f"{base_url}buscar?q={query_encoded}",
+            f"{base_url}buscar/?q={query_encoded}",
+        ]
+        
+        # Patrones específicos por dominio
+        if 'xataka' in domain or 'genbeta' in domain:
+            search_patterns.insert(0, f"{base_url}?s={query_encoded}")
+        elif 'infobae' in domain:
+            search_patterns.insert(0, f"{base_url}buscar?q={query_encoded}")
+        elif 'techcrunch' in domain or 'theverge' in domain:
+            search_patterns.insert(0, f"{base_url}search?q={query_encoded}")
+        
+        return search_patterns[0] if search_patterns else None
+    
+    def scrape_source(self, url: str, keywords: Optional[List[str]] = None, tema: str = "") -> Dict:
+        """
+        Scrapea una fuente específica con estrategias mejoradas
+        """
+        all_articles = []
+        
+        # Estrategia 1: Scrapear la página principal
         soup = self.fetch_page(url)
         
-        if not soup:
+        if soup:
+            articles = self.extract_articles_generic(soup, url)
+            all_articles.extend(articles)
+        
+        # Estrategia 2: Si hay tema/keywords, intentar buscar en URL de búsqueda
+        if (keywords or tema) and len(all_articles) < 10:
+            search_query = tema if tema else ' '.join(keywords[:2]) if keywords else ''
+            if search_query:
+                search_url = self.get_search_url(url, search_query)
+                if search_url and search_url != url:
+                    print(f"  🔍 Intentando búsqueda en: {urlparse(search_url).netloc}...")
+                    search_soup = self.fetch_page(search_url)
+                    if search_soup:
+                        search_articles = self.extract_articles_generic(search_soup, search_url)
+                        # Evitar duplicados
+                        existing_urls = {a['url'] for a in all_articles}
+                        for article in search_articles:
+                            if article['url'] not in existing_urls:
+                                all_articles.append(article)
+                                existing_urls.add(article['url'])
+        
+        if not all_articles:
             return {
                 'fuente': url,
                 'nombre_fuente': urlparse(url).netloc,
@@ -170,12 +557,9 @@ class NewsSourcesScraper:
                 'articulos': []
             }
         
-        # Extraer artículos
-        articles = self.extract_articles_generic(soup, url)
-        
-        # Filtrar por palabras clave si se especifican
-        if keywords:
-            articles = self.filter_by_keywords(articles, keywords)
+        # Filtrar por palabras clave si se especifican, usando filtro flexible
+        if keywords or tema:
+            all_articles = self.filter_by_keywords(all_articles, keywords or [], tema)
         
         # Obtener nombre del sitio
         site_name = urlparse(url).netloc.replace('www.', '').split('.')[0].title()
@@ -184,16 +568,17 @@ class NewsSourcesScraper:
             'fuente': url,
             'nombre_fuente': site_name,
             'estado': 'completado',
-            'articulos_encontrados': len(articles),
-            'articulos': articles[:10]  # Limitar a top 10
+            'articulos_encontrados': len(all_articles),
+            'articulos': all_articles[:15]  # Aumentar a top 15
         }
     
-    def scrape_all_sources(self, keywords: Optional[List[str]] = None, delay: float = 2.0) -> List[Dict]:
+    def scrape_all_sources(self, keywords: Optional[List[str]] = None, tema: str = "", delay: float = 3.0) -> List[Dict]:
         """
         Scrapea todas las fuentes configuradas
         
         Args:
             keywords: Lista de palabras clave para filtrar (opcional)
+            tema: Tema de búsqueda para filtro flexible
             delay: Tiempo de espera entre requests en segundos
             
         Returns:
@@ -201,21 +586,24 @@ class NewsSourcesScraper:
         """
         print(f"🕷️  Iniciando scraping de {len(self.SOURCES)} fuentes...")
         if keywords:
-            print(f"🔍 Filtrando por: {', '.join(keywords)}\n")
+            print(f"🔍 Filtrando por: {', '.join(keywords)}")
+        if tema:
+            print(f"📌 Tema: {tema}")
+        print()
         
         results = []
         
         for i, source_url in enumerate(self.SOURCES, 1):
             print(f"[{i}/{len(self.SOURCES)}] {source_url}")
             
-            result = self.scrape_source(source_url, keywords)
+            result = self.scrape_source(source_url, keywords, tema)
             results.append(result)
             
             print(f"  ✓ {result['articulos_encontrados']} artículos encontrados\n")
             
-            # Pausa entre requests
+            # Pausa entre requests (con variación aleatoria para parecer más humano)
             if i < len(self.SOURCES):
-                time.sleep(delay)
+                time.sleep(delay + random.uniform(0.5, 1.5))
         
         return results
     
@@ -224,31 +612,70 @@ class NewsSourcesScraper:
         Genera un resultado en el formato especificado
         
         Args:
-            search_query: Descripción de la búsqueda realizada
+            search_query: Descripción de la búsqueda realizada (tema)
             keywords: Palabras clave para filtrar
             
         Returns:
             Diccionario con el formato del resultado
         """
-        # Realizar scraping
-        sources_results = self.scrape_all_sources(keywords)
+        # Realizar scraping con filtro flexible usando el tema
+        sources_results = self.scrape_all_sources(keywords, tema=search_query)
         
         # Compilar todos los hallazgos
         all_findings = []
+        total_articulos = sum(len(s['articulos']) for s in sources_results if s['estado'] == 'completado')
         
-        for source in sources_results:
-            if source['estado'] == 'completado' and source['articulos_encontrados'] > 0:
-                for article in source['articulos']:
-                    all_findings.append({
-                        'fuente': source['nombre_fuente'],
-                        'url_fuente': source['fuente'],
-                        'titulo': article['titulo'],
-                        'url': article['url'],
-                        'descripcion': article['descripcion'],
-                        'imagen': article['imagen'],
-                        'fecha': article['fecha'],
-                        'relevancia': article.get('relevancia', 0)
-                    })
+        # Contar tipos de match
+        exactos = 0
+        similares = 0
+        flexibles = 0
+        
+        if total_articulos > 0:
+            print(f"\n📄 Extrayendo contenido completo de {total_articulos} artículos...")
+            
+            for source in sources_results:
+                if source['estado'] == 'completado' and source['articulos_encontrados'] > 0:
+                    for i, article in enumerate(source['articulos'], 1):
+                        tipo_match = article.get('tipo_match', 'exacto')
+                        match_icon = '🎯' if tipo_match == 'exacto' else '🔍' if tipo_match == 'similar' else '📌' if tipo_match == 'flexible' else '📄'
+                        print(f"  [{i}/{len(source['articulos'])}] {match_icon} Extrayendo: {article['titulo'][:60]}...")
+                        
+                        # Contar tipos
+                        if tipo_match == 'exacto':
+                            exactos += 1
+                        elif tipo_match == 'similar':
+                            similares += 1
+                        elif tipo_match == 'flexible':
+                            flexibles += 1
+                        
+                        # Extraer contenido completo del artículo
+                        contenido_completo = ""
+                        if article.get('url'):
+                            contenido_completo = self.extract_article_content(article['url'])
+                            time.sleep(1)  # Pausa entre extracciones de contenido
+                        
+                        all_findings.append({
+                            'fuente': source['nombre_fuente'],
+                            'url_fuente': source['fuente'],
+                            'titulo': article['titulo'],
+                            'url': article['url'],
+                            'descripcion': article['descripcion'],
+                            'contenido': contenido_completo,
+                            'imagen': article['imagen'],
+                            'fecha': article['fecha'],
+                            'relevancia': article.get('relevancia', 0),
+                            'tipo_match': tipo_match
+                        })
+            
+            # Mostrar resumen de tipos de match
+            if similares > 0 or flexibles > 0:
+                print(f"\n📊 Resumen de coincidencias:")
+                if exactos > 0:
+                    print(f"   🎯 Exactos: {exactos}")
+                if similares > 0:
+                    print(f"   🔍 Similares: {similares}")
+                if flexibles > 0:
+                    print(f"   📌 Flexibles: {flexibles}")
         
         # Ordenar por relevancia
         all_findings.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
@@ -268,65 +695,3 @@ class NewsSourcesScraper:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"\n💾 Resultados guardados en: {filename}")
-
-
-def main():
-    """Función principal de ejemplo"""
-    scraper = NewsSourcesScraper()
-    
-    print("=" * 60)
-    print("   SCRAPER DE NOTICIAS - MÚLTIPLES FUENTES")
-    print("=" * 60)
-    print()
-    
-    # Ejemplo 1: Búsqueda sobre IA
-    print("📋 Búsqueda 1: Inteligencia Artificial\n")
-    
-    keywords_ia = [
-        'inteligencia artificial',
-        'IA',
-        'AI',
-        'machine learning',
-        'deep learning',
-        'GPT',
-        'LLM',
-        'modelo de lenguaje',
-        'ChatGPT',
-        'OpenAI',
-        'Anthropic'
-    ]
-    
-    result_ia = scraper.generate_search_result(
-        search_query="Inteligencia Artificial - Últimas Noticias",
-        keywords=keywords_ia
-    )
-    
-    # Guardar resultados
-    scraper.save_results(result_ia, 'noticias_ia.json')
-    
-    # Mostrar resumen
-    print("\n" + "=" * 60)
-    print("📊 RESUMEN DE RESULTADOS")
-    print("=" * 60)
-    print(f"Búsqueda: {result_ia['busqueda_realizada']}")
-    print(f"Fuentes consultadas: {result_ia['total_fuentes_consultadas']}")
-    print(f"Fuentes exitosas: {result_ia['fuentes_exitosas']}")
-    print(f"Total de hallazgos: {result_ia['total_hallazgos']}")
-    
-    # Mostrar top 5 hallazgos
-    print("\n🏆 TOP 5 ARTICULOS MÁS RELEVANTES:")
-    print("-" * 60)
-    for i, finding in enumerate(result_ia['hallazgos'][:5], 1):
-        print(f"\n{i}. {finding['titulo']}")
-        print(f"   Fuente: {finding['fuente']}")
-        print(f"   URL: {finding['url'][:80]}...")
-        if finding['descripcion']:
-            print(f"   {finding['descripcion'][:150]}...")
-    
-    print("\n" + "=" * 60)
-    print("✅ Proceso completado!")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    main()
