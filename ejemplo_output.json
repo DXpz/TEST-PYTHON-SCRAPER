@@ -1,0 +1,197 @@
+{
+    "busqueda_realizada": "Inteligencia Artificial - Ejemplo",
+    "timestamp": "2025-12-22T09:38:00.000000",
+    "total_fuentes_consultadas": 11,
+    "fuentes_exitosas": 10,
+    "total_hallazgos": 15,
+    "hallazgos": [
+        {
+            "fuente": "TechCrunch",
+            "url_fuente": "https://techcrunch.com/",
+            "titulo": "OpenAI anuncia GPT-5 con capacidades revolucionarias",
+            "url": "https://techcrunch.com/2025/12/openai-gpt5",
+            "descripcion": "OpenAI ha presentado su nuevo modelo de lenguaje GPT-5, que promete superar las capacidades de sus predecesores con mejor razonamiento y comprensión contextual...",
+            "imagen": "https://techcrunch.com/wp-content/uploads/2025/12/gpt5.jpg",
+            "fecha": "2025-12-22",
+            "relevancia": 5
+        },
+        {
+            "fuente": "Theverge",
+            "url_fuente": "https://www.theverge.com/",
+            "titulo": "Google DeepMind alcanza nuevo hito en predicción de proteínas",
+            "url": "https://www.theverge.com/2025/12/deepmind-alphafold",
+            "descripcion": "AlphaFold 3 de DeepMind ha logrado predecir con precisión sin precedentes la estructura de proteínas complejas, revolucionando la investigación médica...",
+            "imagen": "https://cdn.vox-cdn.com/uploads/2025/12/alphafold.jpg",
+            "fecha": "2025-12-21",
+            "relevancia": 4
+        },
+        {
+            "fuente": "Xataka",
+            "url_fuente": "https://www.xataka.com/",
+            "titulo": "La IA generativa transforma la industria creativa en 2025",
+            "url": "https://www.xataka.com/inteligencia-artificial/ia-generativa-2025",
+            "descripcion": "Las herramientas de inteligencia artificial generativa están cambiando radicalmente cómo se crea contenido digital, desde imágenes hasta videos y música...",
+            "imagen": "https://i.blogs.es/ia-generativa.jpg",
+            "fecha": "2025-12-20",
+            "relevancia": 4
+        },
+        {
+            "fuente": "Deepmind",
+            "url_fuente": "https://deepmind.google/blog/",
+            "titulo": "Gemini 2.0: Nuestro modelo más capaz hasta la fecha",
+            "url": "https://deepmind.google/blog/gemini-2-announcement",
+            "descripcion": "Presentamos Gemini 2.0, nuestro modelo de IA más avanzado con capacidades multimodales mejoradas y razonamiento superior...",
+            "imagen": "https://deepmind.google/static/gemini2.png",
+            "fecha": "2025-12-19",
+            "relevancia": 5
+        },
+        {
+            "fuente": "Anthropic",
+            "url_fuente": "https://www.anthropic.com/engineering",
+            "titulo": "Claude 3.5: Mejoras en seguridad y alineación de IA",
+            "url": "https://www.anthropic.com/news/claude-3-5",
+            "descripcion": "Anthropic lanza Claude 3.5 con mejoras significativas en seguridad, interpretabilidad y alineación con valores humanos...",
+            "imagen": "https://www.anthropic.com/images/claude35.jpg",
+            "fecha": "2025-12-18",
+            "relevancia": 4
+        },
+        {
+            "fuente": "Genbeta",
+            "url_fuente": "https://www.genbeta.com/",
+            "titulo": "Cómo usar la IA para mejorar tu productividad diaria",
+            "url": "https://www.genbeta.com/productividad/ia-productividad-2025",
+            "descripcion": "Descubre las mejores herramientas de inteligencia artificial para automatizar tareas, gestionar proyectos y aumentar tu eficiencia laboral...",
+            "imagen": "https://i.blogs.es/productividad-ia.jpg",
+            "fecha": "2025-12-17",
+            "relevancia": 3
+        },
+        {
+            "fuente": "Hipertextual",
+            "url_fuente": "https://hipertextual.com/",
+            "titulo": "La UE aprueba regulación histórica sobre inteligencia artificial",
+            "url": "https://hipertextual.com/ai-act-europa",
+            "descripcion": "El Parlamento Europeo aprueba la primera ley integral sobre IA, estableciendo normas para el desarrollo y uso responsable de la tecnología...",
+            "imagen": "https://hipertextual.com/files/ai-regulation.jpg",
+            "fecha": "2025-12-16",
+            "relevancia": 3
+        },
+        {
+            "fuente": "Openai",
+            "url_fuente": "https://openai.com/es-419/news/",
+            "titulo": "OpenAI lanza DALL-E 4 con generación de video en tiempo real",
+            "url": "https://openai.com/news/dalle-4-announcement",
+            "descripcion": "DALL-E 4 introduce capacidades revolucionarias de generación de video a partir de texto, permitiendo crear contenido audiovisual de alta calidad...",
+            "imagen": "https://cdn.openai.com/dalle4-preview.jpg",
+            "fecha": "2025-12-15",
+            "relevancia": 5
+        },
+        {
+            "fuente": "Infobae",
+            "url_fuente": "https://www.infobae.com/",
+            "titulo": "Empresas latinoamericanas adoptan IA para transformación digital",
+            "url": "https://www.infobae.com/economia/ia-latam-transformacion",
+            "descripcion": "Un estudio revela que el 65% de las empresas en América Latina están implementando soluciones de inteligencia artificial para mejorar sus procesos...",
+            "imagen": "https://www.infobae.com/new-resizer/ia-latam.jpg",
+            "fecha": "2025-12-14",
+            "relevancia": 3
+        },
+        {
+            "fuente": "Unesco",
+            "url_fuente": "https://www.unesco.org/en",
+            "titulo": "UNESCO publica directrices éticas para IA en educación",
+            "url": "https://www.unesco.org/en/articles/ai-education-guidelines",
+            "descripción": "La UNESCO presenta un marco ético para la implementación de inteligencia artificial en sistemas educativos, priorizando equidad y acceso...",
+            "imagen": "https://www.unesco.org/sites/ai-education.jpg",
+            "fecha": "2025-12-13",
+            "relevancia": 3
+        }
+    ],
+    "detalle_por_fuente": [
+        {
+            "fuente": "https://techcrunch.com/",
+            "nombre_fuente": "Techcrunch",
+            "estado": "completado",
+            "articulos_encontrados": 3,
+            "articulos": [
+                {
+                    "titulo": "OpenAI anuncia GPT-5 con capacidades revolucionarias",
+                    "url": "https://techcrunch.com/2025/12/openai-gpt5",
+                    "descripcion": "OpenAI ha presentado su nuevo modelo de lenguaje GPT-5...",
+                    "imagen": "https://techcrunch.com/wp-content/uploads/2025/12/gpt5.jpg",
+                    "fecha": "2025-12-22",
+                    "relevancia": 5
+                }
+            ]
+        },
+        {
+            "fuente": "https://www.theverge.com/",
+            "nombre_fuente": "Theverge",
+            "estado": "completado",
+            "articulos_encontrados": 2,
+            "articulos": []
+        },
+        {
+            "fuente": "https://www.xataka.com/",
+            "nombre_fuente": "Xataka",
+            "estado": "completado",
+            "articulos_encontrados": 4,
+            "articulos": []
+        },
+        {
+            "fuente": "https://deepmind.google/blog/",
+            "nombre_fuente": "Deepmind",
+            "estado": "completado",
+            "articulos_encontrados": 2,
+            "articulos": []
+        },
+        {
+            "fuente": "https://www.anthropic.com/engineering",
+            "nombre_fuente": "Anthropic",
+            "estado": "completado",
+            "articulos_encontrados": 1,
+            "articulos": []
+        },
+        {
+            "fuente": "https://www.genbeta.com/",
+            "nombre_fuente": "Genbeta",
+            "estado": "completado",
+            "articulos_encontrados": 1,
+            "articulos": []
+        },
+        {
+            "fuente": "https://hipertextual.com/",
+            "nombre_fuente": "Hipertextual",
+            "estado": "completado",
+            "articulos_encontrados": 1,
+            "articulos": []
+        },
+        {
+            "fuente": "https://openai.com/es-419/news/",
+            "nombre_fuente": "Openai",
+            "estado": "completado",
+            "articulos_encontrados": 1,
+            "articulos": []
+        },
+        {
+            "fuente": "https://www.infobae.com/",
+            "nombre_fuente": "Infobae",
+            "estado": "completado",
+            "articulos_encontrados": 0,
+            "articulos": []
+        },
+        {
+            "fuente": "https://www.unesco.org/en",
+            "nombre_fuente": "Unesco",
+            "estado": "error",
+            "articulos_encontrados": 0,
+            "articulos": []
+        },
+        {
+            "fuente": "https://supplychaindigital.com/",
+            "nombre_fuente": "Supplychaindigital",
+            "estado": "completado",
+            "articulos_encontrados": 0,
+            "articulos": []
+        }
+    ]
+}
