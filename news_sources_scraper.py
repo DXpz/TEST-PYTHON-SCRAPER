@@ -22,6 +22,7 @@ import time
 import re
 import random
 import os
+import uuid
 from urllib.robotparser import RobotFileParser
 
 
@@ -64,6 +65,28 @@ class NewsSourcesScraper:
         })
         self.results = []
         self.robots_cache = {}  # Cache para robots.txt
+        self.cookies_cache = {}  # Cache de cookies por dominio (dinámicas)
+
+    def prepare_cookies(self, url: str):
+        """
+        Genera y aplica cookies dinámicas por dominio para simular sesiones.
+        Se cachean por dominio para mantener consistencia durante la ejecución.
+        """
+        parsed = urlparse(url)
+        domain = parsed.netloc
+
+        if domain not in self.cookies_cache:
+            # Generar identificadores de sesión pseudoaleatorios
+            session_id = uuid.uuid4().hex
+            visitor_id = uuid.uuid4().hex[:16]
+            self.cookies_cache[domain] = {
+                'sessionid': session_id,
+                'visitor': visitor_id
+            }
+
+        # Aplicar cookies al session actual
+        for ck, cv in self.cookies_cache[domain].items():
+            self.session.cookies.set(ck, cv, domain=domain)
     
     def check_robots_txt(self, url: str) -> bool:
         """
@@ -114,6 +137,9 @@ class NewsSourcesScraper:
             headers = self.session.headers.copy()
             headers['Referer'] = urlparse(url).scheme + '://' + urlparse(url).netloc
             
+            # Preparar cookies dinámicas por dominio
+            self.prepare_cookies(url)
+
             response = self.session.get(url, timeout=timeout, headers=headers, allow_redirects=True)
             response.raise_for_status()
             
