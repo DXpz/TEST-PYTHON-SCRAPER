@@ -30,16 +30,15 @@ class NewsSourcesScraper:
     
     # Fuentes de noticias configuradas
     SOURCES = [
-        "https://www.bbc.com/",
-        "https://www.unesco.org/en",
+        "https://www.bbc.com/innovation",
+       # "https://www.unesco.org/en",
         "https://www.infobae.com/",
         "https://www.xataka.com/",
         "https://www.genbeta.com/",
-        "https://www.diariolibre.com/",
-        "https://techcrunch.com/",
+       # "https://techcrunch.com/",
         "https://www.theverge.com/",
         "https://www.nytimes.com/",
-        "https://www.elmundo.es/",
+        "https://www.elmundo.es/tecnologia.html",
         "https://deepmind.google/blog/"
     ]
     
@@ -108,8 +107,8 @@ class NewsSourcesScraper:
                     return None
             
             print(f"  📄 Accediendo a {urlparse(url).netloc}...")
-            # Agregar delay aleatorio para parecer más humano
-            time.sleep(random.uniform(1, 3))
+            # Delay moderado para evitar bloqueos (1-2 segundos)
+            time.sleep(random.uniform(1.0, 2.0))
             
             # Actualizar referer con la URL actual
             headers = self.session.headers.copy()
@@ -137,9 +136,49 @@ class NewsSourcesScraper:
             print(f"  ⚠️  Error: {str(e)[:100]}")
             return None
     
-    def extract_articles_generic(self, soup: BeautifulSoup, base_url: str) -> List[Dict]:
+    def quick_title_check(self, title: str, keywords: Optional[List[str]] = None, tema: str = "") -> bool:
+        """
+        Verificación rápida del título: retorna True si el título tiene relación con el tema/keywords
+        Filtro temprano para descartar artículos basura antes de procesarlos
+        """
+        if not keywords and not tema:
+            return True  # Si no hay filtro, aceptar todos
+        
+        title_lower = title.lower()
+        text_normalized = re.sub(r'[^\w\s]', ' ', title_lower)
+        
+        # Verificar keywords
+        if keywords:
+            for kw in keywords:
+                kw_normalized = re.sub(r'[^\w\s]', ' ', kw.lower())
+                # Coincidencia exacta de keyword completa
+                if kw_normalized in text_normalized:
+                    return True
+                # Coincidencia de todas las palabras de la keyword
+                kw_words = [w for w in kw_normalized.split() if len(w) > 2]
+                if len(kw_words) > 1:
+                    matches = sum(1 for word in kw_words if word in text_normalized)
+                    if matches >= len(kw_words) * 0.7:  # Al menos 70% de palabras
+                        return True
+        
+        # Verificar tema
+        if tema:
+            tema_normalized = re.sub(r'[^\w\s]', ' ', tema.lower())
+            tema_words = [w for w in tema_normalized.split() if len(w) > 3]
+            # Requiere al menos 2 palabras del tema
+            matches = sum(1 for word in tema_words if word in text_normalized)
+            if matches >= 2:
+                return True
+            # O al menos 1 palabra si el tema es corto
+            if len(tema_words) <= 2 and matches >= 1:
+                return True
+        
+        return False  # No hay relación suficiente
+    
+    def extract_articles_generic(self, soup: BeautifulSoup, base_url: str, keywords: Optional[List[str]] = None, tema: str = "") -> List[Dict]:
         """
         Extrae artículos usando selectores genéricos mejorados que funcionan en la mayoría de sitios
+        Filtra por título tempranamente para evitar procesar artículos basura
         """
         articles = []
         seen_urls = set()  # Para evitar duplicados
@@ -234,6 +273,12 @@ class NewsSourcesScraper:
                 if not title or len(title) < 10:
                     continue
                 
+                # FILTRO TEMPRANO: Verificar si el título tiene relación con el tema/keywords
+                # Descarta artículos basura antes de procesarlos completamente
+                if keywords or tema:
+                    if not self.quick_title_check(title, keywords, tema):
+                        continue  # Descartar este artículo, no tiene relación con el tema
+                
                 # Extraer enlace - múltiples estrategias
                 link = ''
                 link_elem = article.find('a', href=True)
@@ -324,6 +369,11 @@ class NewsSourcesScraper:
                 
                 title = link_elem.get_text(strip=True)
                 if len(title) >= 10:
+                    # FILTRO TEMPRANO: Verificar título antes de agregar
+                    if keywords or tema:
+                        if not self.quick_title_check(title, keywords, tema):
+                            continue  # Descartar este artículo
+                    
                     articles.append({
                         'titulo': title,
                         'url': href,
@@ -410,8 +460,8 @@ class NewsSourcesScraper:
     
     def calculate_similarity(self, text: str, keywords: List[str], tema: str) -> float:
         """
-        Calcula la similitud mejorada de un texto con el tema y keywords
-        Retorna un score de 0 a 100
+        Calcula la similitud mejorada y estricta de un texto con el tema y keywords
+        Retorna un score de 0 a 200, siendo más estricto con la relevancia
         """
         text_lower = text.lower()
         tema_lower = tema.lower()
@@ -424,122 +474,159 @@ class NewsSourcesScraper:
         tema_words = [w for w in tema_normalized.split() if len(w) > 3]
         
         score = 0.0
+        keywords_found = 0
+        tema_words_found = 0
         
-        # Coincidencia exacta de keywords completas (peso muy alto)
+        # 1. Coincidencia exacta de keywords completas (peso MUY alto - obligatorio)
         for kw in keywords:
             kw_lower = kw.lower()
             kw_normalized = re.sub(r'[^\w\s]', ' ', kw_lower)
             
-            # Coincidencia exacta de la keyword completa
+            # Coincidencia exacta de la keyword completa (más estricto)
             if kw_normalized in text_normalized:
+                keywords_found += 1
                 # Puntuación basada en longitud de keyword (keywords más largas = más específicas)
-                base_score = 15 + len(kw_normalized) * 3
+                base_score = 20 + len(kw_normalized) * 4  # Aumentado
                 score += base_score
             
-            # Coincidencia de todas las palabras de la keyword
+            # Coincidencia de todas las palabras de la keyword (más estricto)
             kw_words = [w for w in kw_normalized.split() if len(w) > 2]
             if len(kw_words) > 1:
                 matches = sum(1 for word in kw_words if word in text_normalized)
-                if matches == len(kw_words):  # Todas las palabras coinciden
-                    score += 12
-                elif matches > len(kw_words) * 0.7:  # Más del 70% de palabras
-                    score += 8
+                if matches == len(kw_words):  # Todas las palabras coinciden (obligatorio)
+                    keywords_found += 1
+                    score += 15  # Aumentado
+                elif matches >= len(kw_words) * 0.8:  # Al menos 80% de palabras (más estricto)
+                    score += 10
         
-        # Coincidencia de palabras del tema (peso medio)
+        # 2. Coincidencia de palabras del tema (peso medio-alto)
         for word in tema_words:
             if word in text_normalized:
-                score += 6
+                tema_words_found += 1
+                score += 8  # Aumentado
         
-        # Coincidencias parciales de palabras individuales (peso bajo)
-        all_keywords_words = []
-        for kw in keywords:
-            kw_normalized = re.sub(r'[^\w\s]', ' ', kw.lower())
-            all_keywords_words.extend([w for w in kw_normalized.split() if len(w) > 3])
+        # 3. Verificación de correlación temática (NUEVO - más estricto)
+        # Requiere que al menos el 50% de las keywords principales estén presentes
+        keywords_principales = [kw for kw in keywords if len(kw.split()) == 1 or len(kw) > 8]
+        if keywords_principales:
+            keywords_principales_encontradas = sum(1 for kw in keywords_principales 
+                                                   if kw.lower() in text_normalized)
+            porcentaje_keywords = keywords_principales_encontradas / len(keywords_principales)
+            
+            # Si menos del 30% de keywords principales están presentes, penalizar
+            if porcentaje_keywords < 0.3:
+                score *= 0.3  # Reducir significativamente el score
+            # Si más del 70% están presentes, bonus
+            elif porcentaje_keywords >= 0.7:
+                score += 25
         
-        for kw_word in set(all_keywords_words):  # Usar set para evitar duplicados
-            if kw_word in text_normalized:
-                score += 3
+        # 4. Coincidencias parciales de palabras individuales (peso bajo, solo si hay contexto)
+        # Solo contar si ya hay alguna coincidencia previa
+        if keywords_found > 0 or tema_words_found > 0:
+            all_keywords_words = []
+            for kw in keywords:
+                kw_normalized = re.sub(r'[^\w\s]', ' ', kw.lower())
+                all_keywords_words.extend([w for w in kw_normalized.split() if len(w) > 3])
+            
+            for kw_word in set(all_keywords_words):
+                if kw_word in text_normalized:
+                    score += 2  # Reducido, solo como refuerzo
+        else:
+            # Si no hay ninguna coincidencia previa, no dar puntos por palabras sueltas
+            # Esto evita artículos que solo mencionan una palabra del tema de pasada
+            pass
         
-        # Bonus por coincidencia en el título (si el texto parece ser un título)
+        # 5. Bonus por coincidencia en el título (si el texto parece ser un título)
         if len(text) < 200:  # Probablemente es un título
             for kw in keywords:
                 if kw.lower() in text_lower:
-                    score += 5
+                    score += 8  # Aumentado
+        
+        # 6. Penalización si no hay suficiente correlación
+        # Requiere al menos 1 keyword completa O 2+ palabras del tema
+        if keywords_found == 0 and tema_words_found < 2:
+            score *= 0.2  # Penalización severa si no hay correlación suficiente
         
         return min(score, 200)  # Limitar score máximo pero permitir valores altos
     
     def filter_by_keywords(self, articles: List[Dict], keywords: List[str], tema: str = "", min_results: int = 5) -> List[Dict]:
         """
-        Filtra artículos que contengan palabras clave específicas o sean similares al tema
-        Si no encuentra suficientes resultados exactos, usa similitud flexible
+        Filtra artículos de forma ESTRICTA que contengan palabras clave específicas o sean similares al tema
+        Solo incluye artículos con correlación temática suficiente
         """
         filtered_exact = []
         filtered_similar = []
+        filtered_flexible = []
+        
+        # Umbral mínimo de relevancia (más estricto)
+        UMBRAL_MINIMO_EXACTO = 100  # Coincidencia exacta con keywords
+        UMBRAL_MINIMO_SIMILAR = 25   # Similitud alta (aumentado de ~10)
+        UMBRAL_MINIMO_FLEXIBLE = 15  # Similitud media (aumentado de ~5)
         
         for article in articles:
             text_to_search = f"{article['titulo']} {article['descripcion']}".lower()
             
-            # Verificar coincidencia exacta con keywords
-            exact_match = any(keyword.lower() in text_to_search for keyword in keywords)
+            # Verificar coincidencia exacta con keywords (más estricto)
+            keywords_encontradas = [kw for kw in keywords if kw.lower() in text_to_search]
+            exact_match = len(keywords_encontradas) > 0
             
             if exact_match:
                 # Calcular relevancia (cuántas keywords coinciden)
-                relevance = sum(1 for kw in keywords if kw.lower() in text_to_search)
-                article['relevancia'] = relevance + 100  # Bonus por coincidencia exacta
+                relevance = len(keywords_encontradas) * 30 + 100  # Aumentado el peso
+                # Bonus si todas las keywords principales están presentes
+                if len(keywords_encontradas) >= len(keywords) * 0.5:  # Al menos 50%
+                    relevance += 50
+                article['relevancia'] = relevance
+                article['tipo_match'] = 'exacto'
                 filtered_exact.append(article)
             else:
-                # Calcular similitud si hay tema
+                # Calcular similitud si hay tema (más estricto)
                 if tema:
                     similarity_score = self.calculate_similarity(
                         f"{article['titulo']} {article['descripcion']}",
                         keywords,
                         tema
                     )
-                    if similarity_score > 0:
+                    
+                    # Solo agregar si supera el umbral mínimo
+                    if similarity_score >= UMBRAL_MINIMO_SIMILAR:
                         article['relevancia'] = similarity_score
                         article['tipo_match'] = 'similar'
                         filtered_similar.append(article)
+                    elif similarity_score >= UMBRAL_MINIMO_FLEXIBLE:
+                        # Solo como último recurso y con umbral más alto
+                        article['relevancia'] = similarity_score
+                        article['tipo_match'] = 'flexible'
+                        filtered_flexible.append(article)
         
-        # Si hay suficientes resultados exactos, usar solo esos
+        # Priorizar resultados exactos
         if len(filtered_exact) >= min_results:
             filtered_exact.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
-            for article in filtered_exact:
-                article['tipo_match'] = 'exacto'
-            return filtered_exact
+            print(f"  ✅ {len(filtered_exact)} artículos con coincidencia exacta encontrados")
+            return filtered_exact[:min_results * 2]  # Devolver más para tener opciones
         
-        # Si no hay suficientes exactos, combinar con similares
+        # Combinar exactos + similares (si hay suficientes similares de alta calidad)
         all_filtered = filtered_exact + filtered_similar
         all_filtered.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
         
-        # Marcar tipo de match
-        for article in filtered_exact:
-            article['tipo_match'] = 'exacto'
+        # Si hay suficientes resultados de calidad, no usar flexibles
+        if len(all_filtered) >= min_results:
+            print(f"  ✅ {len(all_filtered)} artículos relevantes encontrados (exactos + similares)")
+            return all_filtered[:min_results * 2]
         
-        # Si aún no hay suficientes, tomar los mejores de todos los artículos
-        if len(all_filtered) < min_results:
-            # Calcular similitud para todos los artículos restantes
-            remaining_articles = [a for a in articles if a not in all_filtered]
-            for article in remaining_articles:
-                if tema:
-                    similarity_score = self.calculate_similarity(
-                        f"{article['titulo']} {article['descripcion']}",
-                        keywords,
-                        tema
-                    )
-                    if similarity_score > 0:  # Solo agregar si tiene alguna similitud
-                        article['relevancia'] = similarity_score
-                        article['tipo_match'] = 'flexible'
-                        all_filtered.append(article)
-            
+        # Solo si no hay suficientes, agregar flexibles (con umbral alto)
+        if len(all_filtered) < min_results and filtered_flexible:
+            # Solo los mejores flexibles
+            filtered_flexible.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+            all_filtered.extend(filtered_flexible[:min_results - len(all_filtered)])
             all_filtered.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
+            print(f"  ⚠️  {len(all_filtered)} artículos encontrados (incluyendo algunos flexibles)")
         
-        # Si aún no hay resultados, devolver los primeros artículos disponibles
+        # Si aún no hay suficientes resultados de calidad, NO devolver artículos sin relación
         if len(all_filtered) == 0:
-            print(f"  ⚠️  No se encontraron artículos similares, devolviendo artículos disponibles...")
-            for i, article in enumerate(articles[:min_results]):
-                article['relevancia'] = 1
-                article['tipo_match'] = 'sin_filtro'
-                all_filtered.append(article)
+            print(f"  ❌ No se encontraron artículos con suficiente relevancia al tema '{tema}'")
+            print(f"     Sugerencia: Intenta con keywords más específicas o un tema más amplio")
+            return []  # Devolver vacío en lugar de artículos sin relación
         
         return all_filtered
     
@@ -580,7 +667,7 @@ class NewsSourcesScraper:
         soup = self.fetch_page(url)
         
         if soup:
-            articles = self.extract_articles_generic(soup, url)
+            articles = self.extract_articles_generic(soup, url, keywords=keywords, tema=tema)
             all_articles.extend(articles)
         
         # Estrategia 2: Si hay tema/keywords, intentar buscar en URL de búsqueda
@@ -592,7 +679,7 @@ class NewsSourcesScraper:
                     print(f"  🔍 Intentando búsqueda en: {urlparse(search_url).netloc}...")
                     search_soup = self.fetch_page(search_url)
                     if search_soup:
-                        search_articles = self.extract_articles_generic(search_soup, search_url)
+                        search_articles = self.extract_articles_generic(search_soup, search_url, keywords=keywords, tema=tema)
                         # Evitar duplicados
                         existing_urls = {a['url'] for a in all_articles}
                         for article in search_articles:
@@ -624,14 +711,13 @@ class NewsSourcesScraper:
             'articulos': all_articles[:15]  # Aumentar a top 15
         }
     
-    def scrape_all_sources(self, keywords: Optional[List[str]] = None, tema: str = "", delay: float = 3.0) -> List[Dict]:
+    def scrape_all_sources(self, keywords: Optional[List[str]] = None, tema: str = "") -> List[Dict]:
         """
-        Scrapea todas las fuentes configuradas
+        Scrapea todas las fuentes configuradas con delays optimizados al mínimo legal
         
         Args:
             keywords: Lista de palabras clave para filtrar (opcional)
             tema: Tema de búsqueda para filtro flexible
-            delay: Tiempo de espera entre requests en segundos
             
         Returns:
             Lista de resultados por fuente
@@ -655,9 +741,9 @@ class NewsSourcesScraper:
             
             print(f"  ✓ {result['articulos_encontrados']} artículos encontrados\n")
             
-            # Pausa entre requests (con variación aleatoria para parecer más humano)
+            # Pausa moderada entre requests para evitar bloqueos (1-2 segundos)
             if i < len(self.SOURCES):
-                time.sleep(delay + random.uniform(0.5, 1.5))
+                time.sleep(random.uniform(1.0, 2.0))
         
         return results
     
@@ -715,11 +801,38 @@ class NewsSourcesScraper:
                         elif tipo_match == 'flexible':
                             flexibles += 1
                         
+                        # Re-filtrar con contenido completo para mayor precisión
+                        # Si el artículo ya pasó el filtro inicial, verificar con contenido completo
+                        texto_completo_para_verificar = f"{article['titulo']} {article['descripcion']}"
+                        
                         # Extraer contenido completo del artículo
                         contenido_completo = ""
                         if article.get('url'):
                             contenido_completo = self.extract_article_content(article['url'])
-                            time.sleep(1)  # Pausa entre extracciones de contenido
+                            # Pausa moderada entre extracciones (0.5-1 segundo)
+                            time.sleep(random.uniform(0.5, 1.0))
+                            
+                            # Si tenemos contenido completo, verificar relevancia nuevamente
+                            if contenido_completo:
+                                texto_completo_para_verificar += " " + contenido_completo[:500]  # Primeros 500 chars
+                                
+                                # Re-calcular relevancia con contenido completo
+                                if search_query:
+                                    # Usar las keywords que se pasaron a la función
+                                    keywords_para_verificar = keywords if keywords else [search_query]
+                                    relevancia_completa = self.calculate_similarity(
+                                        texto_completo_para_verificar,
+                                        keywords_para_verificar,
+                                        search_query
+                                    )
+                                    
+                                    # Solo incluir si mantiene relevancia suficiente
+                                    if relevancia_completa < 15:  # Umbral mínimo incluso con contenido
+                                        print(f"  ⚠️  Artículo descartado por baja relevancia tras análisis completo")
+                                        continue  # Saltar este artículo
+                                    
+                                    # Actualizar relevancia con el cálculo completo
+                                    article['relevancia'] = max(article.get('relevancia', 0), relevancia_completa)
                         
                         all_findings.append({
                             'fuente': source['nombre_fuente'],
