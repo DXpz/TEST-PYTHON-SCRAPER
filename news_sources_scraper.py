@@ -1,6 +1,15 @@
 """
 Scraper de Múltiples Fuentes de Noticias
 Consulta fuentes específicas y genera JSON con hallazgos
+
+NOTA LEGAL IMPORTANTE:
+- Este scraper verifica robots.txt antes de acceder a cada sitio
+- El contenido scrapeado debe usarse respetando los derechos de autor
+- Si el contenido se usa para generar noticias con IA, asegúrate de:
+  * Citar las fuentes originales
+  * No reproducir contenido completo sin permiso
+  * Respetar los términos de servicio de cada sitio
+  * Considerar el uso justo (fair use) según tu jurisdicción
 """
 
 import requests
@@ -12,6 +21,8 @@ from urllib.parse import urljoin, urlparse
 import time
 import re
 import random
+import os
+from urllib.robotparser import RobotFileParser
 
 
 class NewsSourcesScraper:
@@ -34,9 +45,11 @@ class NewsSourcesScraper:
     
     def __init__(self):
         self.session = requests.Session()
+        # User-Agent identificable del bot (mejor práctica ética)
+        self.user_agent = 'NewsScraperBot/1.0 (+https://github.com/DXpz/TEST-PYTHON-SCRAPER)'
         # Headers más completos para evitar bloqueos
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': self.user_agent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -51,10 +64,49 @@ class NewsSourcesScraper:
             'Referer': 'https://www.google.com/'
         })
         self.results = []
+        self.robots_cache = {}  # Cache para robots.txt
     
-    def fetch_page(self, url: str, timeout: int = 20) -> Optional[BeautifulSoup]:
+    def check_robots_txt(self, url: str) -> bool:
+        """
+        Verifica si el scraper puede acceder a una URL según robots.txt
+        Retorna True si está permitido, False si está bloqueado
+        """
+        try:
+            parsed_url = urlparse(url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            robots_url = urljoin(base_url, '/robots.txt')
+            
+            # Usar cache si ya verificamos este dominio
+            if base_url in self.robots_cache:
+                rp = self.robots_cache[base_url]
+            else:
+                rp = RobotFileParser()
+                rp.set_url(robots_url)
+                rp.read()
+                self.robots_cache[base_url] = rp
+            
+            # Verificar si nuestro User-Agent puede acceder
+            can_fetch = rp.can_fetch(self.user_agent, url)
+            
+            if not can_fetch:
+                print(f"  🚫 robots.txt bloquea el acceso a esta URL")
+            
+            return can_fetch
+            
+        except Exception as e:
+            # Si hay error al leer robots.txt, asumir que está permitido
+            # (muchos sitios no tienen robots.txt o no es accesible)
+            print(f"  ℹ️  No se pudo verificar robots.txt: {str(e)[:50]}")
+            return True  # Permitir por defecto si no se puede verificar
+    
+    def fetch_page(self, url: str, timeout: int = 20, check_robots: bool = True) -> Optional[BeautifulSoup]:
         """Obtiene y parsea una página con mejor manejo de errores"""
         try:
+            # Verificar robots.txt antes de acceder
+            if check_robots:
+                if not self.check_robots_txt(url):
+                    return None
+            
             print(f"  📄 Accediendo a {urlparse(url).netloc}...")
             # Agregar delay aleatorio para parecer más humano
             time.sleep(random.uniform(1, 3))
@@ -585,6 +637,8 @@ class NewsSourcesScraper:
             Lista de resultados por fuente
         """
         print(f"🕷️  Iniciando scraping de {len(self.SOURCES)} fuentes...")
+        print(f"🤖 User-Agent: {self.user_agent}")
+        print(f"📋 Verificando robots.txt antes de cada acceso...")
         if keywords:
             print(f"🔍 Filtrando por: {', '.join(keywords)}")
         if tema:
@@ -618,6 +672,19 @@ class NewsSourcesScraper:
         Returns:
             Diccionario con el formato del resultado
         """
+        # Advertencia sobre uso del contenido
+        print("\n" + "="*70)
+        print("⚠️  ADVERTENCIA LEGAL")
+        print("="*70)
+        print("El contenido obtenido debe usarse respetando:")
+        print("  • Derechos de autor de las fuentes originales")
+        print("  • Términos de servicio de cada sitio")
+        print("  • Si se usa para generar noticias con IA:")
+        print("    - Citar siempre las fuentes originales")
+        print("    - No reproducir contenido completo sin permiso")
+        print("    - Considerar el uso justo (fair use)")
+        print("="*70 + "\n")
+        
         # Realizar scraping con filtro flexible usando el tema
         sources_results = self.scrape_all_sources(keywords, tema=search_query)
         
@@ -664,7 +731,10 @@ class NewsSourcesScraper:
                             'imagen': article['imagen'],
                             'fecha': article['fecha'],
                             'relevancia': article.get('relevancia', 0),
-                            'tipo_match': tipo_match
+                            'tipo_match': tipo_match,
+                            # Información adicional para facilitar citación en IA
+                            'cita_formato': f"{source['nombre_fuente']} - {article['titulo']} ({article['url']})",
+                            'cita_corta': f"{source['nombre_fuente']}"
                         })
             
             # Mostrar resumen de tipos de match
@@ -680,18 +750,71 @@ class NewsSourcesScraper:
         # Ordenar por relevancia
         all_findings.sort(key=lambda x: x.get('relevancia', 0), reverse=True)
         
+        # Agrupar por fuente para análisis periodístico
+        fuentes_unicas = {}
+        for hallazgo in all_findings:
+            fuente_nombre = hallazgo['fuente']
+            if fuente_nombre not in fuentes_unicas:
+                fuentes_unicas[fuente_nombre] = {
+                    'nombre': fuente_nombre,
+                    'url_base': hallazgo['url_fuente'],
+                    'total_articulos': 0,
+                    'articulos': []
+                }
+            fuentes_unicas[fuente_nombre]['total_articulos'] += 1
+            fuentes_unicas[fuente_nombre]['articulos'].append({
+                'titulo': hallazgo['titulo'],
+                'url': hallazgo['url'],
+                'fecha': hallazgo['fecha']
+            })
+        
+        # Crear resumen periodístico
+        resumen_periodistico = {
+            'tema_principal': search_query,
+            'total_fuentes_consultadas': len(self.SOURCES),
+            'fuentes_exitosas': sum(1 for s in sources_results if s['estado'] == 'completado'),
+            'total_articulos': len(all_findings),
+            'fuentes_unicas': len(fuentes_unicas),
+            'cobertura_temporal': {
+                'mas_reciente': max([h['fecha'] for h in all_findings if h['fecha']], default=''),
+                'mas_antigua': min([h['fecha'] for h in all_findings if h['fecha']], default='')
+            },
+            'perspectivas': list(fuentes_unicas.keys())  # Diferentes perspectivas/medios
+        }
+        
         return {
             'busqueda_realizada': search_query,
             'timestamp': datetime.now().isoformat(),
+            'resumen_periodistico': resumen_periodistico,
             'total_fuentes_consultadas': len(self.SOURCES),
             'fuentes_exitosas': sum(1 for s in sources_results if s['estado'] == 'completado'),
             'total_hallazgos': len(all_findings),
             'hallazgos': all_findings,
-            'detalle_por_fuente': sources_results
+            'fuentes_agrupadas': list(fuentes_unicas.values()),  # Agrupado por fuente para análisis
+            'detalle_por_fuente': sources_results,
+            'advertencia_legal': {
+                'mensaje': 'Este contenido debe usarse respetando derechos de autor y términos de servicio',
+                'uso_ia': 'Si se usa para generar noticias con IA, siempre citar las fuentes originales',
+                'fuentes': [s['fuente'] for s in sources_results if s['estado'] == 'completado']
+            },
+            'nota_para_periodista_ia': {
+                'instrucciones': 'Usa esta información para escribir un artículo periodístico profesional',
+                'verificacion_cruzada': f'Consulta múltiples fuentes ({len(fuentes_unicas)} fuentes únicas disponibles)',
+                'citacion': 'Cita siempre las fuentes originales usando los campos "cita_formato" o "cita_corta"',
+                'contexto_temporal': f'Artículos desde {resumen_periodistico["cobertura_temporal"]["mas_antigua"]} hasta {resumen_periodistico["cobertura_temporal"]["mas_reciente"]}',
+                'perspectivas_disponibles': resumen_periodistico['perspectivas']
+            }
         }
     
     def save_results(self, data: Dict, filename: str = 'news_results.json'):
-        """Guarda los resultados en JSON"""
-        with open(filename, 'w', encoding='utf-8') as f:
+        """Guarda los resultados en JSON en la carpeta 'resultados'"""
+        # Crear carpeta resultados si no existe
+        resultados_dir = 'resultados'
+        if not os.path.exists(resultados_dir):
+            os.makedirs(resultados_dir)
+        
+        # Guardar en la carpeta resultados
+        filepath = os.path.join(resultados_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"\n💾 Resultados guardados en: {filename}")
+        print(f"\n💾 Resultados guardados en: {filepath}")
