@@ -30,23 +30,23 @@ class NewsSourcesScraper:
     
     # Fuentes de noticias configuradas
     SOURCES = [
-        "https://supplychaindigital.com/",
+        "https://www.bbc.com/",
         "https://www.unesco.org/en",
         "https://www.infobae.com/",
         "https://www.xataka.com/",
         "https://www.genbeta.com/",
-        "https://hipertextual.com/",
+        "https://www.diariolibre.com/",
         "https://techcrunch.com/",
         "https://www.theverge.com/",
-        "https://openai.com/es-419/news/",
-        "https://www.anthropic.com/engineering",
+        "https://www.nytimes.com/",
+        "https://www.elmundo.es/",
         "https://deepmind.google/blog/"
     ]
     
     def __init__(self):
         self.session = requests.Session()
-        # User-Agent identificable del bot (mejor práctica ética)
-        self.user_agent = 'NewsScraperBot/1.0 (+https://github.com/DXpz/TEST-PYTHON-SCRAPER)'
+        # User-Agent del bot
+        self.user_agent = 'Mozilla/5.0 (compatible; NewsBot/1.0)'
         # Headers más completos para evitar bloqueos
         self.session.headers.update({
             'User-Agent': self.user_agent,
